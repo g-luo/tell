@@ -1,5 +1,5 @@
 dataset_reader:
-  type: goodnews_face_ner_matched
+  type: visualnews_face_ner_matched
   tokenizer:
     type: word
     word_splitter: just_spaces_keep_newlines
@@ -11,7 +11,7 @@ dataset_reader:
       padding_on_right: true
       padding_value: 1
       max_len: 512
-  image_dir: /shared/g-luo/datasets/goodnews/resized
+  image_dir: /shared/g-luo/datasets/visual_news/origin
   eval_limit: 5120
   lazy: true
   use_caption_names: false

@@ -42,11 +42,11 @@ def exif_size(img):
 
 
 class LoadImages:  # for inference
-    def __init__(self, path, img_size=416):
+    def __init__(self, path, img_size=416, glob_search='*.*'):
         path = str(Path(path))  # os-agnostic
         files = []
         if os.path.isdir(path):
-            files = sorted(glob.glob(os.path.join(path, '*.*')))
+            files = sorted(glob.glob(os.path.join(path, glob_search)))
         elif os.path.isfile(path):
             files = [path]
 

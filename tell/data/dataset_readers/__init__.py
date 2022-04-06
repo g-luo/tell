@@ -7,3 +7,4 @@ from .nytimes_copy_matched import NYTimesCopyMatchedReader
 from .nytimes_faces_ner_matched import NYTimesFacesNERMatchedReader
 from .nytimes_glove import NYTimesGloveReader
 from .nytimes_position import NYTimesPositionReader
+from .visualnews_face_ner_matched import VisualNewsFaceNERMatchedReader

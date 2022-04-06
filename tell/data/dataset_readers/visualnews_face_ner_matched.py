@@ -22,9 +22,9 @@ from tell.data.fields import ImageField, ListTextField
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 
-@DatasetReader.register('goodnews_face_ner_matched')
-class GoodNewsFaceNERMatchedReader(DatasetReader):
-    """Read from the Good News dataset.
+@DatasetReader.register('visualnews_face_ner_matched')
+class VisualNewsFaceNERMatchedReader(DatasetReader):
+    """Read from the VisualNews dataset.
 
     See the repo README for more instruction on how to download the dataset.
 
@@ -48,20 +48,16 @@ class GoodNewsFaceNERMatchedReader(DatasetReader):
                  use_caption_names: bool = True,
                  use_objects: bool = False,
                  n_faces: int = None,
-                 lazy: bool = True, 
-                 context_key: str = 'context',
-                 with_abstract: bool = False,
-                 with_ner: bool = False,
-                 pog: bool = True,
-                 max_end: int = 500) -> None:
+                 lazy: bool = True) -> None:
         super().__init__(lazy)
         self._tokenizer = tokenizer
         self._token_indexers = token_indexers
         self.client = MongoClient(host=mongo_host, port=mongo_port)
-        self.db = self.client.goodnews
+        self.db = self.client.visualnews
         self.image_dir = image_dir
         self.preprocess = Compose([
-            Resize(256), CenterCrop(224),
+            Resize(256), 
+            CenterCrop(224),
             ToTensor(),
             Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
         self.eval_limit = eval_limit
@@ -70,13 +66,7 @@ class GoodNewsFaceNERMatchedReader(DatasetReader):
         self.n_faces = n_faces
         random.seed(1234)
         self.rs = np.random.RandomState(1234)
-
-        self.context_key = context_key
-        self.with_abstract = with_abstract
-        self.with_ner = with_ner
-        self.pog = pog
-        self.max_end = 500
-
+        
     @overrides
     def _read(self, split: str):
         # split can be either train, valid, or test
@@ -98,29 +88,23 @@ class GoodNewsFaceNERMatchedReader(DatasetReader):
 
         for sample_id in ids:
             sample = self.db.splits.find_one({'_id': {'$eq': sample_id}})
-            projection = ['_id', self.context_key, 'images', 'web_url', 'caption_ner', f'{self.context_key}_ner']
-            if self.with_abstract:
-                projection.append('context_abstract')
 
             # Find the corresponding article
             article = self.db.articles.find_one({
-                '_id': {'$eq': sample['article_id']},
-            }, projection=projection)
+                '_id': {'$eq': sample['_id']},
+            }, projection=['_id', 'context', 'images', 'caption_ner', 'context_ner', 'image_path'])
 
-            # Grace: If the key is None, continue even for no_headline case
-            if self.with_abstract and article.get('context_abstract', None) is None:
-                print("No abstract found")
+            if not article:
                 continue
-
-            # Load the image
-            image_path = os.path.join(self.image_dir, f"{sample['_id']}.jpg")
+            
             try:
-                image = Image.open(image_path)
-            except (FileNotFoundError, OSError):
-                print(f"Image not found {image_path}")
+                # Load the image
+                image_path = os.path.join(self.image_dir, f"{article['image_path']}")
+                image = Image.open(image_path).convert("RGB")
+            except (FileNotFoundError, OSError, KeyError):
                 continue
 
-            # named_entities = sorted(self._get_named_entities(article))
+            named_entities = sorted(self._get_named_entities(article))
 
             if self.n_faces is not None:
                 n_persons = self.n_faces
@@ -139,7 +123,7 @@ class GoodNewsFaceNERMatchedReader(DatasetReader):
 
             obj_feats = None
             if self.use_objects:
-                obj = self.db.objects.find_one({'_id': sample['_id']})
+                obj = self.db.objects.find_one({'_id': int(sample['_id'].replace("_0", ""))})
                 if obj is not None:
                     obj_feats = obj['object_features']
                     if len(obj_feats) == 0:
@@ -149,28 +133,27 @@ class GoodNewsFaceNERMatchedReader(DatasetReader):
                 else:
                     obj_feats = np.array([[]])
 
-            yield self.article_to_instance(article, face_embeds,
+            if 'context' not in article:
+                continue
+
+            yield self.article_to_instance(article, named_entities, face_embeds,
                                            image, sample['image_index'],
                                            image_path, obj_feats)
 
-    def article_to_instance(self, article, face_embeds, image,
+    def article_to_instance(self, article, named_entities, face_embeds, image,
                             image_index, image_path, obj_feats) -> Instance:
-        
-        named_entities = sorted(self._get_named_entities(article))
-        if self.with_ner:
-            ner = ", ".join(named_entities) + ".\n\n"
-            context = ner + article[self.context_key].strip()
-            context = ' '.join(context.split(' ')[:self.max_end])
-        else:
-            context = ' '.join(article[self.context_key].strip().split(' ')[:self.max_end])
 
-        caption = article['images'][image_index]
+        # Context is first 500 characters
+        context = ' '.join(article['context'].strip().split(' ')[:500])
+
+        caption = article['images'][str(image_index)]
         caption = caption.strip()
 
         context_tokens = self._tokenizer.tokenize(context)
         caption_tokens = self._tokenizer.tokenize(caption)
-            
+
         name_token_list = [self._tokenizer.tokenize(n) for n in named_entities]
+
         if name_token_list:
             name_field = [TextField(tokens, self._token_indexers)
                           for tokens in name_token_list]
@@ -193,7 +176,7 @@ class GoodNewsFaceNERMatchedReader(DatasetReader):
         metadata = {'context': context,
                     'caption': caption,
                     'names': named_entities,
-                    'web_url': article['web_url'],
+                    'web_url': article.get('web_url', ''),
                     'image_path': image_path}
         fields['metadata'] = MetadataField(metadata)
 
@@ -202,13 +185,13 @@ class GoodNewsFaceNERMatchedReader(DatasetReader):
     def _get_named_entities(self, article):
         # These name indices have the right end point excluded
         names = set()
-        context_ner = f'{self.context_key}_ner'
-        if context_ner in article:
-            ners = article[context_ner]
+
+        if 'context_ner' in article:
+            ners = article['context_ner']
             for ner in ners:
-                if not self.pog or (ner['label'] in ['PERSON', 'ORG', 'GPE']):
-                    # if not self.truncated or (ner['end'] < self.max_end):
+                if ner['label'] in ['PERSON', 'ORG', 'GPE']:
                     names.add(ner['text'])
+
         return names
 
     def _get_person_names(self, article, pos):

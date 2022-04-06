@@ -90,14 +90,17 @@ def evaluate(model: Model,
              batch_weight_key: str) -> Dict[str, Any]:
     check_for_gpu(cuda_device)
     nlp = spacy.load("en_core_web_lg")
-    assert not os.path.exists(os.path.join(
-        serialization_dir, f'generations{eval_suffix}.jsonl'))
+    # assert not os.path.exists(os.path.join(
+    #     serialization_dir, f'generations{eval_suffix}.jsonl'))
 
     # caching saves us extra 30 minutes
     if 'goodnews' in serialization_dir:
         cache_path = 'data/goodnews/evaluation_cache.pkl'
     elif 'nytimes' in serialization_dir:
         cache_path = 'data/nytimes/evaluation_cache.pkl'
+    elif 'visualnews' in serialization_dir:
+        cache_path = 'data/visualnews/evaluation_cache.pkl'
+    
     if os.path.exists(cache_path):
         with open(cache_path, 'rb') as f:
             cache = pickle.load(f)
@@ -163,9 +166,12 @@ def evaluate(model: Model,
             #                        "produced a loss!")
             final_metrics["loss"] = total_loss / total_weight
 
-    if not os.path.exists(cache_path):
-        with open(cache_path, 'wb') as f:
-            pickle.dump(cache, f)
+    # if not os.path.exists(cache_path):
+    cache_folder = os.path.dirname(cache_path)
+    if not os.path.exists(cache_folder):
+        os.makedirs(cache_folder, exist_ok=True)
+    with open(cache_path, 'wb') as f:
+        pickle.dump(cache, f)
 
     return final_metrics
 
@@ -177,6 +183,7 @@ def write_to_json(output_dict, serialization_dir, nlp, eval_suffix, cache):
     captions = output_dict['captions']
     generations = output_dict['generations']
     metadatas = output_dict['metadata']
+
     if 'copied_texts' in output_dict:
         copied_texts = output_dict['copied_texts']
     else:

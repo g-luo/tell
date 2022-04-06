@@ -16,6 +16,10 @@ dataset_reader:
   lazy: true
   use_caption_names: false
   use_objects: true
+  context_key: context
+  with_abstract: false
+  with_ner: true
+  pog: false
 train_data_path: train
 validation_data_path: val
 test_data_path: test
